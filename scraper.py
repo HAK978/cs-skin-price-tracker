@@ -10,7 +10,7 @@ import time
 
 # Define the URLs of the marketplaces to scrape
 STEAM_URL = 'https://steamcommunity.com/market/search'
-SKINPORT_URL = 'https://skinport.com'
+SKINPORT_URL = 'https://skinport.com/market?search='
 
 # Selenium setup
 FIREFOX_DRIVER_PATH = r'C:\WebDrivers\geckodriver.exe'  # Updated path to GeckoDriver
@@ -89,58 +89,41 @@ def scrape_steam_skin_prices(skin_name, wear_condition=None):
         if driver:
             driver.quit()
 
-# Function to scrape skin prices from Skinport with wear filter
-def scrape_skinport_skin_prices(skin_name, wear_condition=None):
+# Function to scrape the first skin price from Skinport with wear filter
+def scrape_skinport_skin_price(skin_name, wear_condition=None):
     driver = None
     try:
         driver = initialize_driver()
-        driver.get(SKINPORT_URL)
+        search_query = f"{skin_name} {wear_condition}" if wear_condition and wear_condition.lower() != 'all' else skin_name
+        search_query = search_query.replace(' ', '+')
+        search_url = f"https://skinport.com/market?search={search_query}"
+        driver.get(search_url)
+        print(f"Navigated to: {search_url}")
         
         # Handle cookie popup
         handle_cookie_popup(driver)
+        print("Handled cookie popup")
         
-        # Wait for the search input to be visible
-        search_box = WebDriverWait(driver, 15).until(
-            EC.presence_of_element_located((By.ID, 'searchInput'))
+        # Ensure items are loaded
+        WebDriverWait(driver, 15).until(
+            EC.presence_of_element_located((By.CLASS_NAME, 'CatalogPage-items'))
         )
+        print("Items grid loaded")
         
-        search_box.clear()
-        search_query = f"{skin_name} {wear_condition}" if wear_condition and wear_condition.lower() != 'all' else skin_name
-        search_box.send_keys(search_query)
-        search_box.send_keys(Keys.RETURN)
-        
-        time.sleep(5)
-        
-        # Apply cheapest-first sorting
-        sort_button = WebDriverWait(driver, 15).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, 'button.Dropdown-button'))
+        # Wait for first CatalogPage-item to load
+        first_item = WebDriverWait(driver, 15).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, '.CatalogPage-item'))
         )
-        driver.execute_script("arguments[0].scrollIntoView(true);", sort_button)
-        sort_button.click()
-        time.sleep(2)
-        cheapest_option = WebDriverWait(driver, 15).until(
-            EC.presence_of_element_located((By.XPATH, "//span[contains(text(), 'Cheapest first')]"))
-        )
-        cheapest_option.click()
-        time.sleep(3)
+        print("First item located")
         
-        # Get the first skin listing
-        page_source = driver.page_source
-        soup = BeautifulSoup(page_source, 'html.parser')
-        
-        item = soup.find('div', class_='ItemPreview')
-        if item:
-            name_tag = item.find('a', class_='ItemPreview-href')
-            price_tag = item.find('div', class_='Tooltip-link')
-            wear_tag = item.find('div', class_='ItemPreview-itemText')
-            float_tag = item.find('div', class_='WearBar-value')
-            
-            if name_tag and price_tag:
-                name = name_tag.text.strip()
-                price = price_tag.text.strip()
-                wear = wear_tag.text.strip() if wear_tag else 'N/A'
-                float_value = float_tag.text.strip() if float_tag else 'N/A'
-                return {'name': name, 'price': price, 'wear': wear, 'float': float_value}
+        # Extract item name and price
+        try:
+            name = first_item.find_element(By.CSS_SELECTOR, '.ItemPreview-itemName').text.strip()
+            price = first_item.find_element(By.CSS_SELECTOR, '.Tooltip-link').text.strip()
+            print(f"Found: {name}, {price}")
+            return {'name': name, 'price': price}
+        except Exception as e:
+            print(f"Failed to extract data for the first item: {e}")
         
         return None
     
@@ -150,23 +133,22 @@ def scrape_skinport_skin_prices(skin_name, wear_condition=None):
         if driver:
             driver.quit()
 
-# Example usage
-if __name__ == '__main__':
-    skin_name = input("Enter the name of the skin: ")
-    wear_condition = input(f"Enter the wear condition (FN/MW/FT/WW/BS/All): ").strip().lower()
+if __name__ == "__main__":
+    skin_name = input("Enter the name of the skin: ").strip()
+    wear_condition = input("Enter the wear condition (FN/MW/FT/WW/BS/All): ").strip().lower()
     wear_condition = WEAR_CONDITIONS.get(wear_condition, 'all')
-    
-    print("--- Steam Marketplace Results ---")
+
+    print("\n--- Steam Marketplace Results ---")
     steam_results = scrape_steam_skin_prices(skin_name, wear_condition)
     if steam_results:
         for idx, skin in enumerate(steam_results, start=1):
             print(f"{idx}. {skin['name']} - {skin['price']}")
     else:
         print("No skins found on Steam.")
-    
+
     print("\n--- Skinport Marketplace Results ---")
-    skinport_result = scrape_skinport_skin_prices(skin_name, wear_condition)
+    skinport_result = scrape_skinport_skin_price(skin_name, wear_condition)
     if skinport_result:
-        print(f"1. {skinport_result['name']} - {skinport_result['price']} (Wear: {skinport_result['wear']}, Float: {skinport_result['float']})")
+        print(f"1. {skinport_result['name']} - {skinport_result['price']}")
     else:
         print("No skins found on Skinport.")
