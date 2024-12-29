@@ -1,24 +1,19 @@
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.firefox.service import Service
-from selenium.webdriver.firefox.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from bs4 import BeautifulSoup
 import time
+import undetected_chromedriver as uc
 
 # Define the URLs of the marketplaces to scrape
 STEAM_URL = 'https://steamcommunity.com/market/search'
 SKINPORT_URL = 'https://skinport.com/market?search='
 
-# Selenium setup
-FIREFOX_DRIVER_PATH = r'C:\WebDrivers\geckodriver.exe'  # Updated path to GeckoDriver
-FIREFOX_BINARY_PATH = r'C:\Program Files\Mozilla Firefox\firefox.exe'
-
 # Define headers to mimic a browser
 HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:91.0) Gecko/20100101 Firefox/91.0',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     'Accept-Language': 'en-US,en;q=0.9'
 }
 
@@ -37,12 +32,11 @@ WEAR_CONDITIONS = {
     'all': 'all'
 }
 
-# Function to initialize the Firefox driver with proper options
+# Function to initialize the Chrome driver with undetected_chromedriver
 def initialize_driver():
-    options = Options()
-    options.binary_location = FIREFOX_BINARY_PATH
-    service = Service(FIREFOX_DRIVER_PATH)
-    driver = webdriver.Firefox(service=service, options=options)
+    options = uc.ChromeOptions()
+    options.add_argument('--disable-blink-features=AutomationControlled')
+    driver = uc.Chrome(options=options)
     return driver
 
 # Function to handle cookie popup
@@ -89,14 +83,14 @@ def scrape_steam_skin_prices(skin_name, wear_condition=None):
         if driver:
             driver.quit()
 
-# Function to scrape the first skin price from Skinport with wear filter
-def scrape_skinport_skin_price(skin_name, wear_condition=None):
+# Function to scrape the first 5 skin prices from Skinport with Cheapest First sorting
+def scrape_skinport_skin_prices(skin_name, wear_condition=None):
     driver = None
     try:
         driver = initialize_driver()
         search_query = f"{skin_name} {wear_condition}" if wear_condition and wear_condition.lower() != 'all' else skin_name
         search_query = search_query.replace(' ', '+')
-        search_url = f"https://skinport.com/market?search={search_query}"
+        search_url = f"https://skinport.com/market?search={search_query}&sort=price&order=asc"
         driver.get(search_url)
         print(f"Navigated to: {search_url}")
         
@@ -104,31 +98,32 @@ def scrape_skinport_skin_price(skin_name, wear_condition=None):
         handle_cookie_popup(driver)
         print("Handled cookie popup")
         
-        # Ensure items are loaded
-        WebDriverWait(driver, 15).until(
+        # Ensure items grid is visible
+        WebDriverWait(driver, 30).until(
             EC.presence_of_element_located((By.CLASS_NAME, 'CatalogPage-items'))
         )
         print("Items grid loaded")
         
-        # Wait for first CatalogPage-item to load
-        first_item = WebDriverWait(driver, 15).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, '.CatalogPage-item'))
+        # Locate the first 5 items in the grid
+        items = WebDriverWait(driver, 30).until(
+            EC.presence_of_all_elements_located((By.CSS_SELECTOR, '.CatalogPage-item'))
         )
-        print("First item located")
         
-        # Extract item name and price
-        try:
-            name = first_item.find_element(By.CSS_SELECTOR, '.ItemPreview-itemName').text.strip()
-            price = first_item.find_element(By.CSS_SELECTOR, '.Tooltip-link').text.strip()
-            print(f"Found: {name}, {price}")
-            return {'name': name, 'price': price}
-        except Exception as e:
-            print(f"Failed to extract data for the first item: {e}")
+        results = []
+        for item in items[:5]:
+            try:
+                name = item.find_element(By.CSS_SELECTOR, '.ItemPreview-itemName').text.strip()
+                price = item.find_element(By.CSS_SELECTOR, '.ItemPreview-priceValue .Tooltip-link').text.strip()
+                results.append({'name': name, 'price': price})
+            except Exception as e:
+                print(f"Failed to extract item details: {e}")
+                continue
         
-        return None
+        return results
     
     except Exception as err:
         print(f"An error occurred: {err}")
+        return []
     finally:
         if driver:
             driver.quit()
@@ -147,8 +142,9 @@ if __name__ == "__main__":
         print("No skins found on Steam.")
 
     print("\n--- Skinport Marketplace Results ---")
-    skinport_result = scrape_skinport_skin_price(skin_name, wear_condition)
-    if skinport_result:
-        print(f"1. {skinport_result['name']} - {skinport_result['price']}")
+    skinport_results = scrape_skinport_skin_prices(skin_name, wear_condition)
+    if skinport_results:
+        for idx, skin in enumerate(skinport_results, start=1):
+            print(f"{idx}. {skin['name']} - {skin['price']}")
     else:
         print("No skins found on Skinport.")
