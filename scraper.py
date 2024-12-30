@@ -88,39 +88,52 @@ def scrape_skinport_skin_prices(skin_name, wear_condition=None):
     driver = None
     try:
         driver = initialize_driver()
-        search_query = f"{skin_name} {wear_condition}" if wear_condition and wear_condition.lower() != 'all' else skin_name
-        search_query = search_query.replace(' ', '+')
-        search_url = f"https://skinport.com/market?search={search_query}&sort=price&order=asc"
-        driver.get(search_url)
-        print(f"Navigated to: {search_url}")
         
-        # Handle cookie popup
-        handle_cookie_popup(driver)
-        print("Handled cookie popup")
-        
-        # Ensure items grid is visible
-        WebDriverWait(driver, 30).until(
-            EC.presence_of_element_located((By.CLASS_NAME, 'CatalogPage-items'))
-        )
-        print("Items grid loaded")
-        
-        # Locate the first 5 items in the grid
-        items = WebDriverWait(driver, 30).until(
-            EC.presence_of_all_elements_located((By.CSS_SELECTOR, '.CatalogPage-item'))
-        )
-        
+        conditions = ['Factory New', 'Minimal Wear', 'Field-Tested', 'Well-Worn', 'Battle-Scarred']
         results = []
-        for item in items[:5]:
-            try:
+        
+        if wear_condition == 'all':
+            for condition in conditions:
+                search_query = f"{skin_name} {condition}".replace(' ', '+')
+                search_url = f"https://skinport.com/market?search={search_query}&sort=price&order=asc"
+                driver.get(search_url)
+                print(f"Navigated to: {search_url}")
+                
+                handle_cookie_popup(driver)
+                WebDriverWait(driver, 30).until(
+                    EC.presence_of_element_located((By.CLASS_NAME, 'CatalogPage-items'))
+                )
+                print("Items grid loaded")
+                
+                time.sleep(3)  # Ensure dynamic content has fully loaded
+                
+                items = driver.find_elements(By.CSS_SELECTOR, '.CatalogPage-item')
+                for item in items[:5]:
+                    try:
+                        name = item.find_element(By.CSS_SELECTOR, '.ItemPreview-itemName').text.strip()
+                        price = item.find_element(By.CSS_SELECTOR, '.ItemPreview-priceValue .Tooltip-link').text.strip()
+                        results.append({'name': name, 'price': price, 'condition': condition})
+                    except Exception as e:
+                        print(f"Failed to extract item details for condition {condition}: {e}")
+        else:
+            search_query = f"{skin_name} {wear_condition}".replace(' ', '+')
+            search_url = f"https://skinport.com/market?search={search_query}&sort=price&order=asc"
+            driver.get(search_url)
+            print(f"Navigated to: {search_url}")
+            
+            handle_cookie_popup(driver)
+            WebDriverWait(driver, 30).until(
+                EC.presence_of_element_located((By.CLASS_NAME, 'CatalogPage-items'))
+            )
+            
+            time.sleep(3)
+            items = driver.find_elements(By.CSS_SELECTOR, '.CatalogPage-item')
+            for item in items[:5]:
                 name = item.find_element(By.CSS_SELECTOR, '.ItemPreview-itemName').text.strip()
                 price = item.find_element(By.CSS_SELECTOR, '.ItemPreview-priceValue .Tooltip-link').text.strip()
-                results.append({'name': name, 'price': price})
-            except Exception as e:
-                print(f"Failed to extract item details: {e}")
-                continue
+                results.append({'name': name, 'price': price, 'condition': wear_condition})
         
         return results
-    
     except Exception as err:
         print(f"An error occurred: {err}")
         return []
@@ -138,13 +151,9 @@ if __name__ == "__main__":
     if steam_results:
         for idx, skin in enumerate(steam_results, start=1):
             print(f"{idx}. {skin['name']} - {skin['price']}")
-    else:
-        print("No skins found on Steam.")
 
     print("\n--- Skinport Marketplace Results ---")
     skinport_results = scrape_skinport_skin_prices(skin_name, wear_condition)
     if skinport_results:
         for idx, skin in enumerate(skinport_results, start=1):
-            print(f"{idx}. {skin['name']} - {skin['price']}")
-    else:
-        print("No skins found on Skinport.")
+            print(f"{idx}. {skin['name']} ({skin['condition']}) - {skin['price']}")
