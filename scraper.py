@@ -60,7 +60,7 @@ def scrape_steam_skin_prices(skin_name, wear_condition=None):
         search_url = f"{STEAM_URL}?q={search_query.replace(' ', '+')}"
         driver.get(search_url)
         
-        time.sleep(5)
+        # time.sleep(5)
         
         page_source = driver.page_source
         soup = BeautifulSoup(page_source, 'html.parser')
@@ -105,7 +105,7 @@ def scrape_skinport_skin_prices(skin_name, wear_condition=None):
                 )
                 print("Items grid loaded")
                 
-                time.sleep(3)  # Ensure dynamic content has fully loaded
+                # time.sleep(3)  # Ensure dynamic content has fully loaded
                 
                 items = driver.find_elements(By.CSS_SELECTOR, '.CatalogPage-item')
                 for item in items[:5]:
@@ -126,7 +126,7 @@ def scrape_skinport_skin_prices(skin_name, wear_condition=None):
                 EC.presence_of_element_located((By.CLASS_NAME, 'CatalogPage-items'))
             )
             
-            time.sleep(3)
+            # time.sleep(3)
             items = driver.find_elements(By.CSS_SELECTOR, '.CatalogPage-item')
             for item in items[:5]:
                 name = item.find_element(By.CSS_SELECTOR, '.ItemPreview-itemName').text.strip()
