@@ -44,23 +44,61 @@ WEAR_CONDITIONS = {
 
 
 # Function to initialize the Chrome driver with undetected_chromedriver
-def initialize_driver():
+def initialize_driver_basic():
+    """Initialize basic undetected Chrome driver for Skinport and regular Steam market scraping."""
+    options = uc.ChromeOptions()
+    options.add_argument('--disable-blink-features=AutomationControlled')
+    driver = uc.Chrome(options=options)
+    return driver
+
+def initialize_driver_steam_auth():
     """Initialize Chrome driver with Steam authentication."""
     options = webdriver.ChromeOptions()
+    options.add_argument('--disable-blink-features=AutomationControlled')
     driver = webdriver.Chrome(options=options)
     
-    # First visit Steam to set the cookie
+    # First visit Steam
+    print("Initializing Steam authentication...")
     driver.get("https://steamcommunity.com")
+    time.sleep(2)
     
-    # Add the Steam authentication cookie
-    steam_cookie = {
-        'name': 'steamLoginSecure',
-        'value': '76561198369694237||eyAidHlwIjogIkpXVCIsICJhbGciOiAiRWREU0EiIH0.eyAiaXNzIjogInI6MDAxOV8yNUMzMEI2MF85RTg0MyIsICJzdWIiOiAiNzY1NjExOTgzNjk2OTQyMzciLCAiYXVkIjogWyAid2ViOmNvbW11bml0eSIgXSwgImV4cCI6IDE3MzgyNTgzMTUsICJuYmYiOiAxNzI5NTMxMjU0LCAiaWF0IjogMTczODE3MTI1NCwgImp0aSI6ICIwMDBBXzI1QzMwQjYyX0IxMzkxIiwgIm9hdCI6IDE3MzgxNzEyNTQsICJydF9leHAiOiAxNzU2NzQ1NTI2LCAicGVyIjogMCwgImlwX3N1YmplY3QiOiAiMTUyLjE1LjExMi43NyIsICJpcF9jb25maXJtZXIiOiAiMTcyLjU5LjIxNi4yMjMiIH0.rWYVmbO8UnJ2zTiTXrJbtgAkVRmfgw7cPPJM-M-_C0DqNDp3t1Ar0-bm-7M0yXtzwJoCapxigSQsmLR4w2ahBw',
-        'domain': '.steamcommunity.com',
-        'path': '/'
-    }
+    # Add all necessary Steam cookies
+    steam_cookies = [
+        {
+            'name': 'steamLoginSecure',
+            'value': '76561198369694237||eyAidHlwIjogIkpXVCIsICJhbGciOiAiRWREU0EiIH0.eyAiaXNzIjogInI6MDAxOV8yNUMzMEI2MF85RTg0MyIsICJzdWIiOiAiNzY1NjExOTgzNjk2OTQyMzciLCAiYXVkIjogWyAid2ViOmNvbW11bml0eSIgXSwgImV4cCI6IDE3Mzg5MTE5NDIsICJuYmYiOiAxNzMwMTg0NjUyLCAiaWF0IjogMTczODgyNDY1MiwgImp0aSI6ICIwMDBBXzI1Q0M0NTMwXzdBNjZEIiwgIm9hdCI6IDE3MzgxNzEyNTQsICJydF9leHAiOiAxNzU2NzQ1NTI2LCAicGVyIjogMCwgImlwX3N1YmplY3QiOiAiMTUyLjE1LjExMi43NyIsICJpcF9jb25maXJtZXIiOiAiMTcyLjU5LjIxNi4yMjMiIH0.uSClWebh3EQMkmSgbrtlB8OAmTwPq0gPFPz5t4Edcrb4WhF0J9rXdG4A0mOYQ2t-kAzMIZl7TcpxRWhwJHsACg',
+            'domain': '.steamcommunity.com',
+            'path': '/'
+        },
+        {
+            'name': 'sessionid',
+            'value': 'c7a44057ae59052736d5adfa',
+            'domain': '.steamcommunity.com',
+            'path': '/'
+        },
+        {
+            'name': 'browserid',
+            'value': '115506104732364917',
+            'domain': '.steamcommunity.com',
+            'path': '/'
+        }
+    ]
     
-    driver.add_cookie(steam_cookie)
+    for cookie in steam_cookies:
+        try:
+            driver.add_cookie(cookie)
+        except Exception as e:
+            print(f"Failed to add cookie {cookie['name']}: {e}")
+    
+    # Verify cookies and get price history
+    print("Verifying Steam authentication...")
+    driver.refresh()
+    time.sleep(3)
+    
+    # Check if all cookies were set
+    cookies = driver.get_cookies()
+    cookie_names = [cookie['name'] for cookie in cookies]
+    print("Current cookies:", cookie_names)
     
     return driver
 
@@ -81,7 +119,7 @@ def handle_cookie_popup(driver):
 def scrape_steam_skin_prices(skin_name, wear_condition=None):
     driver = None
     try:
-        driver = initialize_driver()
+        driver = initialize_driver_basic()
         search_query = f"{skin_name} {wear_condition}" if wear_condition and wear_condition.lower() != 'all' else skin_name
         search_url = f"{STEAM_URL}?q={search_query.replace(' ', '+')}"
         driver.get(search_url)
@@ -112,97 +150,13 @@ def scrape_steam_skin_prices(skin_name, wear_condition=None):
         if driver:
             driver.quit()
             
-def get_steam_price_history(market_hash_name):
-    """Fetches price history from Steam Market."""
-    driver = None
-    try:
-        driver = initialize_driver()
-
-        # First, visit the main market listing to get necessary cookies
-        listing_url = f"https://steamcommunity.com/market/listings/730/{quote(market_hash_name)}"
-        print(f"\nVisiting listing page first: {listing_url}")
-        driver.get(listing_url)
-        time.sleep(3)  # Wait for page to load and cookies to be set
-
-        # Then get the price history
-        price_history_url = "https://steamcommunity.com/market/pricehistory/"
-        params = {
-            'country': 'US',
-            'currency': 1,
-            'appid': 730,
-            'market_hash_name': market_hash_name
-        }
-        
-        query_string = "&".join(f"{k}={quote(str(v))}" for k, v in params.items())
-        full_price_history_url = f"{price_history_url}?{query_string}"
-        
-        print(f"\nFetching price history from: {full_price_history_url}")
-        
-        driver.get(full_price_history_url)
-        
-        # Wait longer for the data to load
-        time.sleep(5)
-        
-        try:
-            # Get the raw JSON data from the page
-            raw_data = driver.find_element(By.TAG_NAME, "pre").text
-            print(f"\nRaw data received: {raw_data[:200]}...")
-            
-            # Check if we got an empty response
-            if raw_data == '[]':
-                print("Received empty data, trying alternative method...")
-                # Try to get data from the market page directly
-                driver.get(listing_url)
-                time.sleep(3)
-                
-                # Execute JavaScript to get price history
-                price_history = driver.execute_script("""
-                    return g_rgPriceHistory || null;
-                """)
-                
-                if price_history:
-                    print("\nFound price history through JavaScript!")
-                    return price_history
-                else:
-                    print("Could not find price history data")
-                    return None
-            
-            # Parse the JSON data if we got a non-empty response
-            data = json.loads(raw_data)
-            if isinstance(data, dict) and 'prices' in data:
-                prices = data['prices']
-                print("\nPrice History (last 5 entries):")
-                print(f"{'Date':<25} {'Price':>10} {'Volume':>8}")
-                print("-" * 45)
-                
-                for entry in prices[-5:]:
-                    date, price, volume = entry
-                    print(f"{date:<25} ${price:>8.2f} {volume:>8}")
-                return prices
-            else:
-                print(f"Unexpected data structure: {data}")
-                return None
-                
-        except Exception as e:
-            print(f"Failed to parse price history data: {e}")
-            if 'raw_data' in locals():
-                print(f"Raw data was: {raw_data}")
-            return None
-
-    except Exception as e:
-        print(f"Error fetching price history: {e}")
-        return None
-    
-    finally:
-        if driver:
-            driver.quit()
 
 
 # Function to scrape the first 5 skin prices from Skinport with Cheapest First sorting
 def scrape_skinport_skin_prices(skin_name, wear_condition=None):
     driver = None
     try:
-        driver = initialize_driver()
+        driver = initialize_driver_basic()
         
         conditions = ['Factory New', 'Minimal Wear', 'Field-Tested', 'Well-Worn', 'Battle-Scarred']
         results = []
@@ -220,7 +174,7 @@ def scrape_skinport_skin_prices(skin_name, wear_condition=None):
                 )
                 print("Items grid loaded")
                 
-                # time.sleep(3)  # Ensure dynamic content has fully loaded
+                time.sleep(3)  # Ensure dynamic content has fully loaded
                 
                 items = driver.find_elements(By.CSS_SELECTOR, '.CatalogPage-item')
                 for item in items[:5]:
@@ -241,7 +195,7 @@ def scrape_skinport_skin_prices(skin_name, wear_condition=None):
                 EC.presence_of_element_located((By.CLASS_NAME, 'CatalogPage-items'))
             )
             
-            # time.sleep(3)
+            time.sleep(3)
             items = driver.find_elements(By.CSS_SELECTOR, '.CatalogPage-item')
             for item in items[:5]:
                 name = item.find_element(By.CSS_SELECTOR, '.ItemPreview-itemName').text.strip()
@@ -252,6 +206,60 @@ def scrape_skinport_skin_prices(skin_name, wear_condition=None):
     except Exception as err:
         print(f"An error occurred: {err}")
         return []
+    finally:
+        if driver:
+            driver.quit()
+
+def get_steam_price_history(market_hash_name):
+    """Fetches price history from Steam Market."""
+    driver = None
+    try:
+        driver = initialize_driver_steam_auth()
+        
+        # Visit the market listing page directly
+        listing_url = f"https://steamcommunity.com/market/listings/730/{quote(market_hash_name)}"
+        print(f"\nVisiting listing page: {listing_url}")
+        driver.get(listing_url)
+        
+        # Wait for page to load completely
+        time.sleep(5)
+        
+        # First try to get price history from the API
+        price_history_url = f"https://steamcommunity.com/market/pricehistory/?country=US&currency=1&appid=730&market_hash_name={quote(market_hash_name)}"
+        print(f"Fetching price history from API: {price_history_url}")
+        
+        driver.get(price_history_url)
+        time.sleep(3)
+        
+        try:
+            raw_data = driver.find_element(By.TAG_NAME, "pre").text
+            if raw_data and raw_data != '[]':
+                data = json.loads(raw_data)
+                if 'prices' in data:
+                    print("Successfully retrieved price history from API")
+                    return data['prices']
+        except:
+            print("Could not get price history from API, trying page JavaScript...")
+            
+            # If API fails, try getting it from the page
+            driver.get(listing_url)
+            time.sleep(5)
+            
+            try:
+                price_history = driver.execute_script("return g_rgPriceHistory;")
+                if price_history:
+                    print("Successfully retrieved price history from page")
+                    return price_history
+            except Exception as e:
+                print(f"Failed to get price history from page: {e}")
+        
+        print("Could not retrieve price history data")
+        return None
+
+    except Exception as e:
+        print(f"Error: {e}")
+        return None
+    
     finally:
         if driver:
             driver.quit()
