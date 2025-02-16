@@ -1,16 +1,22 @@
 from selenium import webdriver
+from selenium.webdriver.firefox.service import Service as FirefoxService
+from webdriver_manager.firefox import GeckoDriverManager
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.firefox.service import Service
 from bs4 import BeautifulSoup
 import time
 import undetected_chromedriver as uc
+from selenium.webdriver.firefox.options import Options as FirefoxOptions
+import pyautogui
 # from csgostash_scraper.modules.scraper import RetrieveCollection
 # from csgostash_scraper.modules.objectfactory import CollectionFactory
 import requests
 import json
 import os
+import time
 from urllib.parse import quote
 
 API_KEY="Z6Y0JME93XWPCD7S"
@@ -52,33 +58,37 @@ def initialize_driver_basic():
     return driver
 
 def initialize_driver_steam_auth():
-    """Initialize Chrome driver with Steam authentication."""
-    options = webdriver.ChromeOptions()
+    """Initialize Firefox driver with Steam authentication for price history."""
+    options = webdriver.FirefoxOptions()
     options.add_argument('--disable-blink-features=AutomationControlled')
-    driver = webdriver.Chrome(options=options)
     
-    # First visit Steam
+    # Initialize Firefox driver with geckodriver
+    driver = webdriver.Firefox(
+        service=FirefoxService(GeckoDriverManager().install()),
+        options=options
+    )
+    
     print("Initializing Steam authentication...")
     driver.get("https://steamcommunity.com")
     time.sleep(2)
     
-    # Add all necessary Steam cookies
+    # Add Steam cookies
     steam_cookies = [
         {
             'name': 'steamLoginSecure',
-            'value': '76561198369694237||eyAidHlwIjogIkpXVCIsICJhbGciOiAiRWREU0EiIH0.eyAiaXNzIjogInI6MDAxOV8yNUMzMEI2MF85RTg0MyIsICJzdWIiOiAiNzY1NjExOTgzNjk2OTQyMzciLCAiYXVkIjogWyAid2ViOmNvbW11bml0eSIgXSwgImV4cCI6IDE3Mzg5MTE5NDIsICJuYmYiOiAxNzMwMTg0NjUyLCAiaWF0IjogMTczODgyNDY1MiwgImp0aSI6ICIwMDBBXzI1Q0M0NTMwXzdBNjZEIiwgIm9hdCI6IDE3MzgxNzEyNTQsICJydF9leHAiOiAxNzU2NzQ1NTI2LCAicGVyIjogMCwgImlwX3N1YmplY3QiOiAiMTUyLjE1LjExMi43NyIsICJpcF9jb25maXJtZXIiOiAiMTcyLjU5LjIxNi4yMjMiIH0.uSClWebh3EQMkmSgbrtlB8OAmTwPq0gPFPz5t4Edcrb4WhF0J9rXdG4A0mOYQ2t-kAzMIZl7TcpxRWhwJHsACg',
+            'value': '76561198369694237%7C%7CeyAidHlwIjogIkpXVCIsICJhbGciOiAiRWREU0EiIH0.eyAiaXNzIjogInI6MDAxMF8yNUQ2RUQ1OV9DNjM3NSIsICJzdWIiOiAiNzY1NjExOTgzNjk2OTQyMzciLCAiYXVkIjogWyAid2ViOmNvbW11bml0eSIgXSwgImV4cCI6IDE3Mzk3NTYxNDMsICJuYmYiOiAxNzMxMDI5NTI3LCAiaWF0IjogMTczOTY2OTUyNywgImp0aSI6ICIwMDBBXzI1RDZFQkUxX0JDMkZDIiwgIm9hdCI6IDE3Mzk2Njk1MjcsICJydF9leHAiOiAxNzU3ODQzOTc5LCAicGVyIjogMCwgImlwX3N1YmplY3QiOiAiMTczLjk1LjU3LjE5NSIsICJpcF9jb25maXJtZXIiOiAiMTczLjk1LjU3LjE5NSIgfQ.Rkjy94Kdvm6BZrmaybyZwRGPKFIZ__l68l5z7LC9ougBJjAV2zxApIvVhz-tkMDh-oiKc-ahFk7UlrCjF2FNCQ',
             'domain': '.steamcommunity.com',
             'path': '/'
         },
         {
             'name': 'sessionid',
-            'value': 'c7a44057ae59052736d5adfa',
+            'value': '48d320d8ba8d66b88498e67f',
             'domain': '.steamcommunity.com',
             'path': '/'
         },
         {
             'name': 'browserid',
-            'value': '115506104732364917',
+            'value': '257370855405343345',
             'domain': '.steamcommunity.com',
             'path': '/'
         }
@@ -90,17 +100,164 @@ def initialize_driver_steam_auth():
         except Exception as e:
             print(f"Failed to add cookie {cookie['name']}: {e}")
     
-    # Verify cookies and get price history
-    print("Verifying Steam authentication...")
     driver.refresh()
     time.sleep(3)
     
-    # Check if all cookies were set
-    cookies = driver.get_cookies()
-    cookie_names = [cookie['name'] for cookie in cookies]
-    print("Current cookies:", cookie_names)
-    
     return driver
+
+def initialize_driver_steam_auth_firefox():
+    """Initialize Firefox driver with Steam authentication for price history."""
+    try:
+        options = webdriver.FirefoxOptions()
+        driver = webdriver.Firefox(options=options)
+        
+        print("Initializing Steam authentication...")
+        driver.get("https://steamcommunity.com")
+        time.sleep(2)
+        
+        # Add Steam cookies
+        steam_cookies = [
+            {
+                'name': 'steamLoginSecure',
+                'value': '76561198369694237||eyAidHlwIjogIkpXVCIsICJhbGciOiAiRWREU0EiIH0.eyAiaXNzIjogInI6MDAxOV8yNUMzMEI2MF85RTg0MyIsICJzdWIiOiAiNzY1NjExOTgzNjk2OTQyMzciLCAiYXVkIjogWyAid2ViOmNvbW11bml0eSIgXSwgImV4cCI6IDE3MzgyNTgzMTUsICJuYmYiOiAxNzI5NTMxMjU0LCAiaWF0IjogMTczODE3MTI1NCwgImp0aSI6ICIwMDBBXzI1QzMwQjYyX0IxMzkxIiwgIm9hdCI6IDE3MzgxNzEyNTQsICJydF9leHAiOiAxNzU2NzQ1NTI2LCAicGVyIjogMCwgImlwX3N1YmplY3QiOiAiMTUyLjE1LjExMi43NyIsICJpcF9jb25maXJtZXIiOiAiMTcyLjU5LjIxNi4yMjMiIH0.rWYVmbO8UnJ2zTiTXrJbtgAkVRmfgw7cPPJM-M-_C0DqNDp3t1Ar0-bm-7M0yXtzwJoCapxigSQsmLR4w2ahBw',
+                'domain': '.steamcommunity.com',
+                'path': '/'
+            },
+            {
+                'name': 'sessionid',
+                'value': 'c7a44057ae59052736d5adfa',
+                'domain': '.steamcommunity.com',
+                'path': '/'
+            },
+            {
+                'name': 'browserid',
+                'value': '115506104732364917',
+                'domain': '.steamcommunity.com',
+                'path': '/'
+            }
+        ]
+        
+        for cookie in steam_cookies:
+            try:
+                driver.add_cookie(cookie)
+            except Exception as e:
+                print(f"Failed to add cookie {cookie['name']}: {e}")
+        
+        driver.refresh()
+        time.sleep(3)
+        
+        return driver
+    except Exception as e:
+        print(f"Error initializing Firefox driver: {e}")
+        return None
+
+def get_steam_price_history(market_hash_name):
+    """Fetches price history from Steam Market and saves the data."""
+    driver = None
+    try:
+        # Define save directory at the start of the function
+        save_directory = "C:\\Users\\harsh\\GitHub\\cs-skin-price-tracker"
+        if not os.path.exists(save_directory):
+            os.makedirs(save_directory)
+
+        driver = initialize_driver_steam_auth()
+        
+        # Then construct and visit the price history URL
+        price_history_url = "https://steamcommunity.com/market/pricehistory/"
+        params = {
+            'country': 'US',
+            'currency': 1,
+            'appid': 730,
+            'market_hash_name': market_hash_name
+        }
+        
+        query_string = "&".join(f"{k}={quote(str(v))}" for k, v in params.items())
+        full_price_history_url = f"{price_history_url}?{query_string}"
+        
+        print(f"Fetching price history from: {full_price_history_url}")
+        driver.get(full_price_history_url)
+        
+        # Wait for data to load
+        time.sleep(2)
+        
+        print(f"Current URL: {driver.current_url}")
+        
+        
+        try:
+            save_button = driver.find_element(By.CSS_SELECTOR, "button.btn.save")
+            save_button.click()
+            print("Save dialog opened")
+            
+            # Wait for the save dialog to appear
+            time.sleep(1)
+            
+            # Focus on address bar and paste the directory
+            pyautogui.hotkey('alt', 'd')
+            time.sleep(1)
+            pyautogui.write(save_directory)
+            pyautogui.press('enter')
+            time.sleep(2)
+            
+            # Tab to filename field
+            pyautogui.press('tab')
+            pyautogui.press('tab')
+            pyautogui.press('tab')
+            pyautogui.press('tab')
+            pyautogui.press('tab')
+            pyautogui.press('tab')
+            pyautogui.press('tab')
+            
+            # Clear any existing filename and type new one
+            pyautogui.hotkey('ctrl', 'a')  # Select all
+            time.sleep(0.5)
+            safe_filename = f"{market_hash_name.replace('|', '-').replace('/', '-')}.json"
+            pyautogui.write(safe_filename)
+            time.sleep(1)
+            pyautogui.press('tab')
+            
+            # Open dropdown and select "All Files"
+            pyautogui.press('down')
+            time.sleep(0.5)
+            for _ in range(2):  # Press up multiple times to reach "All Files"
+                pyautogui.press('down')
+            
+            # Save the file
+            pyautogui.press('enter')
+            pyautogui.press('enter')
+            print(f"File saved as: {os.path.join(save_directory, safe_filename)}")
+            
+            # Wait for the save to complete
+            time.sleep(3)
+            
+        except Exception as e:
+            print(f"Couldn't handle save dialog: {e}")
+            print(f"Detailed error: {str(e)}")
+            
+        # Get the data for processing
+        try:
+            pre_element = WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.TAG_NAME, "pre"))
+            )
+            
+            raw_data = pre_element.text
+            data = json.loads(raw_data)
+            
+            if 'prices' in data:
+                print("Successfully retrieved price history data")
+                return data['prices']
+            
+        except Exception as e:
+            print(f"Error getting price data: {e}")
+        
+        return None
+
+    except Exception as e:
+        print(f"Error: {e}")
+        return None
+    
+    finally:
+        if driver:
+            driver.quit()
 
 # Function to handle cookie popup
 def handle_cookie_popup(driver):
@@ -206,60 +363,6 @@ def scrape_skinport_skin_prices(skin_name, wear_condition=None):
     except Exception as err:
         print(f"An error occurred: {err}")
         return []
-    finally:
-        if driver:
-            driver.quit()
-
-def get_steam_price_history(market_hash_name):
-    """Fetches price history from Steam Market."""
-    driver = None
-    try:
-        driver = initialize_driver_steam_auth()
-        
-        # Visit the market listing page directly
-        listing_url = f"https://steamcommunity.com/market/listings/730/{quote(market_hash_name)}"
-        print(f"\nVisiting listing page: {listing_url}")
-        driver.get(listing_url)
-        
-        # Wait for page to load completely
-        time.sleep(5)
-        
-        # First try to get price history from the API
-        price_history_url = f"https://steamcommunity.com/market/pricehistory/?country=US&currency=1&appid=730&market_hash_name={quote(market_hash_name)}"
-        print(f"Fetching price history from API: {price_history_url}")
-        
-        driver.get(price_history_url)
-        time.sleep(3)
-        
-        try:
-            raw_data = driver.find_element(By.TAG_NAME, "pre").text
-            if raw_data and raw_data != '[]':
-                data = json.loads(raw_data)
-                if 'prices' in data:
-                    print("Successfully retrieved price history from API")
-                    return data['prices']
-        except:
-            print("Could not get price history from API, trying page JavaScript...")
-            
-            # If API fails, try getting it from the page
-            driver.get(listing_url)
-            time.sleep(5)
-            
-            try:
-                price_history = driver.execute_script("return g_rgPriceHistory;")
-                if price_history:
-                    print("Successfully retrieved price history from page")
-                    return price_history
-            except Exception as e:
-                print(f"Failed to get price history from page: {e}")
-        
-        print("Could not retrieve price history data")
-        return None
-
-    except Exception as e:
-        print(f"Error: {e}")
-        return None
-    
     finally:
         if driver:
             driver.quit()
