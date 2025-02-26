@@ -18,11 +18,13 @@ import json
 import os
 import time
 from urllib.parse import quote
+import psycopg2
+from datetime import datetime
 
 API_KEY="Z6Y0JME93XWPCD7S"
 
 # Define the URLs of the marketplaces to scrape
-STEAM_URL = 'https://steamcommunity.com/market/search'
+STEAM_URL = 'https://steamcommunity.com/market/search?appid=730'
 SKINPORT_URL = 'https://skinport.com/market?search='
 STEAM_PRICE_HISTORY_URL = 'https://steamcommunity.com/market/pricehistory/'
 DATABASE_FILE = 'csgo_skins_database.json'
@@ -48,6 +50,98 @@ WEAR_CONDITIONS = {
     'all': 'all'
 }
 
+
+class DatabaseHandler:
+    def __init__(self):
+        try:
+            self.conn = psycopg2.connect(
+                dbname="cs_skins",
+                user="postgres",
+                password="your_password_here",  # Your PostgreSQL password
+                host="localhost",
+                port="5432"
+            )
+            self.cur = self.conn.cursor()
+            print("Successfully connected to database")
+        except Exception as e:
+            print(f"Database connection error: {e}")
+
+    def load_json_to_db(self, json_file_path):
+        """Load price history from JSON file into database"""
+        try:
+            # Read JSON file
+            with open(json_file_path, 'r') as f:
+                data = json.load(f)
+            
+            # Get market_hash_name from filename
+            market_hash_name = Path(json_file_path).stem.replace(' - ', ' | ')
+            print(f"Processing data for: {market_hash_name}")
+
+            # Insert skin into skins table
+            self.cur.execute("""
+                INSERT INTO skins (market_hash_name)
+                VALUES (%s)
+                ON CONFLICT (market_hash_name) DO NOTHING
+                RETURNING skin_id
+            """, (market_hash_name,))
+            
+            result = self.cur.fetchone()
+            if result:
+                skin_id = result[0]
+                print(f"Created new skin with ID: {skin_id}")
+            else:
+                self.cur.execute("SELECT skin_id FROM skins WHERE market_hash_name = %s", 
+                               (market_hash_name,))
+                skin_id = self.cur.fetchone()[0]
+                print(f"Found existing skin with ID: {skin_id}")
+
+            # Process price history
+            price_history_data = []
+            currency = data['price_prefix']  # '₹' from your JSON
+
+            for date_str, price, volume in data['prices']:
+                try:
+                    # Convert timestamp
+                    date_str = date_str.replace(": +0", ":00 +0000")
+                    timestamp = datetime.strptime(date_str, '%b %d %Y %H:%M %z')
+                    
+                    # Convert price to USD
+                    price_usd = float(price) * 0.012  # Basic INR to USD conversion
+                    
+                    price_history_data.append((
+                        timestamp,
+                        skin_id,
+                        price_usd,
+                        float(price),  # Original price in INR
+                        currency,
+                        int(volume)
+                    ))
+                except Exception as e:
+                    print(f"Error processing entry: {date_str}, {price}, {volume}")
+                    print(f"Error details: {e}")
+
+            # Batch insert price history
+            self.cur.executemany("""
+                INSERT INTO price_history 
+                    (time, skin_id, price_usd, price_original, currency, volume)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                ON CONFLICT (time, skin_id) DO UPDATE SET
+                    price_usd = EXCLUDED.price_usd,
+                    price_original = EXCLUDED.price_original,
+                    volume = EXCLUDED.volume
+            """, price_history_data)
+            
+            self.conn.commit()
+            print(f"Successfully saved {len(price_history_data)} price entries to database")
+            
+        except Exception as e:
+            self.conn.rollback()
+            print(f"Error processing file {json_file_path}: {e}")
+
+    def close(self):
+        self.cur.close()
+        self.conn.close()
+        print("Database connection closed")
 
 # Function to initialize the Chrome driver with undetected_chromedriver
 def initialize_driver_basic():
@@ -76,19 +170,19 @@ def initialize_driver_steam_auth():
     steam_cookies = [
         {
             'name': 'steamLoginSecure',
-            'value': '76561198369694237%7C%7CeyAidHlwIjogIkpXVCIsICJhbGciOiAiRWREU0EiIH0.eyAiaXNzIjogInI6MDAxMF8yNUQ2RUQ1OV9DNjM3NSIsICJzdWIiOiAiNzY1NjExOTgzNjk2OTQyMzciLCAiYXVkIjogWyAid2ViOmNvbW11bml0eSIgXSwgImV4cCI6IDE3Mzk3NTYxNDMsICJuYmYiOiAxNzMxMDI5NTI3LCAiaWF0IjogMTczOTY2OTUyNywgImp0aSI6ICIwMDBBXzI1RDZFQkUxX0JDMkZDIiwgIm9hdCI6IDE3Mzk2Njk1MjcsICJydF9leHAiOiAxNzU3ODQzOTc5LCAicGVyIjogMCwgImlwX3N1YmplY3QiOiAiMTczLjk1LjU3LjE5NSIsICJpcF9jb25maXJtZXIiOiAiMTczLjk1LjU3LjE5NSIgfQ.Rkjy94Kdvm6BZrmaybyZwRGPKFIZ__l68l5z7LC9ougBJjAV2zxApIvVhz-tkMDh-oiKc-ahFk7UlrCjF2FNCQ',
+            'value': '76561198369694237%7C%7CeyAidHlwIjogIkpXVCIsICJhbGciOiAiRWREU0EiIH0.eyAiaXNzIjogInI6MDAwQ18yNURFQkEyNF85MjkyRSIsICJzdWIiOiAiNzY1NjExOTgzNjk2OTQyMzciLCAiYXVkIjogWyAid2ViOmNvbW11bml0eSIgXSwgImV4cCI6IDE3NDA1MjY4NjYsICJuYmYiOiAxNzMxNzk5MzE3LCAiaWF0IjogMTc0MDQzOTMxNywgImp0aSI6ICIwMDBBXzI1REVCQTE4X0M0RTYwIiwgIm9hdCI6IDE3NDA0MzkzMTcsICJydF9leHAiOiAxNzU4ODI1MzMxLCAicGVyIjogMCwgImlwX3N1YmplY3QiOiAiMTUyLjE1LjExMi4yNTEiLCAiaXBfY29uZmlybWVyIjogIjE1Mi4xNS4xMTIuMjQ5IiB9.ppbqixD8MXaFnm04TAJj7GITIFFsZNDYqdZ4Z3gNPhGXqK15aFKIhUitshOES504hk5v2RrKYQ5p-5-XBih_AQ',
             'domain': '.steamcommunity.com',
             'path': '/'
         },
         {
             'name': 'sessionid',
-            'value': '48d320d8ba8d66b88498e67f',
+            'value': 'b7f62df876c6ca0fa2e2b531',
             'domain': '.steamcommunity.com',
             'path': '/'
         },
         {
             'name': 'browserid',
-            'value': '257370855405343345',
+            'value': '117759806768484693',
             'domain': '.steamcommunity.com',
             'path': '/'
         }
@@ -105,51 +199,6 @@ def initialize_driver_steam_auth():
     
     return driver
 
-def initialize_driver_steam_auth_firefox():
-    """Initialize Firefox driver with Steam authentication for price history."""
-    try:
-        options = webdriver.FirefoxOptions()
-        driver = webdriver.Firefox(options=options)
-        
-        print("Initializing Steam authentication...")
-        driver.get("https://steamcommunity.com")
-        time.sleep(2)
-        
-        # Add Steam cookies
-        steam_cookies = [
-            {
-                'name': 'steamLoginSecure',
-                'value': '76561198369694237||eyAidHlwIjogIkpXVCIsICJhbGciOiAiRWREU0EiIH0.eyAiaXNzIjogInI6MDAxOV8yNUMzMEI2MF85RTg0MyIsICJzdWIiOiAiNzY1NjExOTgzNjk2OTQyMzciLCAiYXVkIjogWyAid2ViOmNvbW11bml0eSIgXSwgImV4cCI6IDE3MzgyNTgzMTUsICJuYmYiOiAxNzI5NTMxMjU0LCAiaWF0IjogMTczODE3MTI1NCwgImp0aSI6ICIwMDBBXzI1QzMwQjYyX0IxMzkxIiwgIm9hdCI6IDE3MzgxNzEyNTQsICJydF9leHAiOiAxNzU2NzQ1NTI2LCAicGVyIjogMCwgImlwX3N1YmplY3QiOiAiMTUyLjE1LjExMi43NyIsICJpcF9jb25maXJtZXIiOiAiMTcyLjU5LjIxNi4yMjMiIH0.rWYVmbO8UnJ2zTiTXrJbtgAkVRmfgw7cPPJM-M-_C0DqNDp3t1Ar0-bm-7M0yXtzwJoCapxigSQsmLR4w2ahBw',
-                'domain': '.steamcommunity.com',
-                'path': '/'
-            },
-            {
-                'name': 'sessionid',
-                'value': 'c7a44057ae59052736d5adfa',
-                'domain': '.steamcommunity.com',
-                'path': '/'
-            },
-            {
-                'name': 'browserid',
-                'value': '115506104732364917',
-                'domain': '.steamcommunity.com',
-                'path': '/'
-            }
-        ]
-        
-        for cookie in steam_cookies:
-            try:
-                driver.add_cookie(cookie)
-            except Exception as e:
-                print(f"Failed to add cookie {cookie['name']}: {e}")
-        
-        driver.refresh()
-        time.sleep(3)
-        
-        return driver
-    except Exception as e:
-        print(f"Error initializing Firefox driver: {e}")
-        return None
 
 def get_steam_price_history(market_hash_name):
     """Fetches price history from Steam Market and saves the data."""
@@ -178,7 +227,7 @@ def get_steam_price_history(market_hash_name):
         driver.get(full_price_history_url)
         
         # Wait for data to load
-        time.sleep(2)
+        time.sleep(1)
         
         print(f"Current URL: {driver.current_url}")
         
@@ -196,7 +245,7 @@ def get_steam_price_history(market_hash_name):
             time.sleep(1)
             pyautogui.write(save_directory)
             pyautogui.press('enter')
-            time.sleep(2)
+            time.sleep(1)
             
             # Tab to filename field
             pyautogui.press('tab')
@@ -227,7 +276,7 @@ def get_steam_price_history(market_hash_name):
             print(f"File saved as: {os.path.join(save_directory, safe_filename)}")
             
             # Wait for the save to complete
-            time.sleep(3)
+            time.sleep(1)
             
         except Exception as e:
             print(f"Couldn't handle save dialog: {e}")
@@ -278,12 +327,12 @@ def scrape_steam_skin_prices(skin_name, wear_condition=None):
     try:
         driver = initialize_driver_basic()
         search_query = f"{skin_name} {wear_condition}" if wear_condition and wear_condition.lower() != 'all' else skin_name
-        search_url = f"{STEAM_URL}?q={search_query.replace(' ', '+')}"
+        search_url = f"{STEAM_URL}&q={search_query.replace(' ', '+')}"
         driver.get(search_url)
         
         page_source = driver.page_source
         soup = BeautifulSoup(page_source, 'html.parser')
-        
+        print(f"Navigated to: {search_url}")
         results = []
         for item in soup.find_all('div', class_='market_listing_row'):
             name_tag = item.find('span', class_='market_listing_item_name')
@@ -341,6 +390,21 @@ def scrape_skinport_skin_prices(skin_name, wear_condition=None):
                         results.append({'name': name, 'price': price, 'condition': condition})
                     except Exception as e:
                         print(f"Failed to extract item details for condition {condition}: {e}")
+        elif wear_condition == 'none':
+            search_query = f"{skin_name}".replace(' ', '+')
+            search_url = f"https://skinport.com/market?search={search_query}&sort=price&order=asc"
+            driver.get(search_url)
+            print(f"Navigated to: {search_url}")
+            
+            handle_cookie_popup(driver)
+            WebDriverWait(driver, 30).until(
+                EC.presence_of_element_located((By.CLASS_NAME, 'CatalogPage-items'))
+            )
+            print("Items grid loaded")
+            name = item.find_element(By.CSS_SELECTOR, '.ItemPreview-itemName').text.strip()
+            price = item.find_element(By.CSS_SELECTOR, '.ItemPreview-priceValue .Tooltip-link').text.strip()
+            results.append({'name': name, 'price': price, 'condition': condition})
+            time.sleep(3)
         else:
             search_query = f"{skin_name} {wear_condition}".replace(' ', '+')
             search_url = f"https://skinport.com/market?search={search_query}&sort=price&order=asc"
@@ -370,7 +434,7 @@ def scrape_skinport_skin_prices(skin_name, wear_condition=None):
     
 if __name__ == "__main__":
     skin_name = input("Enter the name of the skin: ").strip()
-    wear_condition = input("Enter the wear condition (FN/MW/FT/WW/BS/All): ").strip().lower()
+    wear_condition = input("Enter the wear condition (FN/MW/FT/WW/BS/All/None): ").strip().lower()
     wear_condition = WEAR_CONDITIONS.get(wear_condition, 'all')
 
     print("\n--- Steam Marketplace Results ---")
@@ -378,11 +442,23 @@ if __name__ == "__main__":
     if steam_results:
         for idx, skin in enumerate(steam_results, start=1):
             print(f"{idx}. {skin['name']} - {skin['price']}")
+            
             # Get price history for the first result
             if idx == 1:
                 print("\n--- Steam Price History ---")
                 price_history = get_steam_price_history(skin['market_hash_name'])
                 if price_history:
+                    print(f"Got price history data with {len(price_history)} entries")
+                    # Save to database
+                    db = DatabaseHandler()
+                    try:
+                        db.save_price_history(skin['market_hash_name'], price_history)
+                    except Exception as e:
+                        print(f"Error in main while saving to database: {e}")
+                    finally:
+                        db.close()
+
+                    # Display the data
                     print("Recent price history (last 5 entries):")
                     for date, price, quantity in price_history[-5:]:
                         print(f"{date}: ${price:.2f} ({quantity} sold)")
@@ -394,6 +470,5 @@ if __name__ == "__main__":
     if skinport_results:
         for idx, skin in enumerate(skinport_results, start=1):
             print(f"{idx}. {skin['name']} ({skin['condition']}) - {skin['price']}")
-            
     
 
